@@ -7,8 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import edu.eati25.kmp.movies.data.Movie
 import edu.eati25.kmp.movies.data.MoviesRepository
-import kotlinx.coroutines.delay
+import kotlinx.datetime.Clock
 import kotlinx.coroutines.launch
+import kotlinx.datetime.Instant
 
 class HomeViewModel(
     private val moviesRepository: MoviesRepository
@@ -17,6 +18,8 @@ class HomeViewModel(
         private set
     var showArgMovies by mutableStateOf(false)
         private set
+    private var lastClearTime: Instant?= null
+    private val AUTO_CLEAR_INTERVAL_MS = 30*60*1000L // 30 minutes
 
     private var hasInitiallyLoaded = false
 
@@ -38,8 +41,7 @@ class HomeViewModel(
     fun loadPopularMovies() {
         viewModelScope.launch {
             state = UiState(isLoading = true)
-            moviesRepository.clearDatabase()
-            delay(1000)
+            clearIfNeeded()
             state =
                 UiState(
                     isLoading = false,
@@ -51,8 +53,7 @@ class HomeViewModel(
     fun loadArgMovies() {
         viewModelScope.launch {
             state = UiState(isLoading = true)
-            moviesRepository.clearDatabase()
-            delay(1000)
+            clearIfNeeded()
             state =
                 UiState(
                     isLoading = false,
@@ -69,6 +70,37 @@ class HomeViewModel(
             } else {
                 state = UiState(isLoading = false, movies = emptyList())
             }
+        }
+    }
+
+
+    private fun shouldClearCache(): Boolean {
+        val currentTime = Clock.System.now()
+        return lastClearTime?.let { lastTime ->
+            val timeDifference = (currentTime - lastTime).inWholeMilliseconds
+            timeDifference >= AUTO_CLEAR_INTERVAL_MS
+        } ?: true
+    }
+
+    private suspend fun clearIfNeeded() {
+        if (shouldClearCache()) {
+            val currentTime = Clock.System.now()
+            val minutesPassed = lastClearTime?.let {
+                ((currentTime - it).inWholeMilliseconds / 1000 / 60).toInt()
+            } ?: 0
+
+            println("🕐 Auto-limpieza activada - Han pasado $minutesPassed minutos")
+            moviesRepository.clearDatabase()
+            lastClearTime = currentTime
+
+        } else {
+            val currentTime = Clock.System.now()
+            val timeLeft = AUTO_CLEAR_INTERVAL_MS - (lastClearTime?.let {
+                (currentTime - it).inWholeMilliseconds
+            } ?: 0)
+            val minutesLeft = (timeLeft / 1000 / 60).toInt()
+            println("Cache valido - Faltan $minutesLeft minutos para auto-limpieza")
+
         }
     }
 

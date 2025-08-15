@@ -4,7 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import edu.eati25.kmp.movies.data.Movie
 
-const val DATABASE_NAME = "movies_db"
+const val DATABASE_NAME = "movies2_db"
 interface DB {
     fun clearAllTables()
 }

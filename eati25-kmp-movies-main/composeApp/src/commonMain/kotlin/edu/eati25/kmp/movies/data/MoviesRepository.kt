@@ -3,54 +3,73 @@ package edu.eati25.kmp.movies.data
 import edu.eati25.kmp.movies.data.database.MoviesDao
 import kotlinx.coroutines.flow.first
 
-
 class MoviesRepository(
     private val moviesService: MoviesService,
     private val moviesDao: MoviesDao
 ) {
 
-    private val moviesLoadedFromApiInSession = mutableSetOf<Int>()
+    private val movieDataSourceMap = mutableMapOf<Int, DataSource>()
+
+    private val POPULAR_ID_OFFSET = 0
+    private val ARGENTINA_ID_OFFSET = 10000000 // 10 millones
 
     suspend fun getPopularMovies(): List<Movie> {
 
-        val moviesFromDb = moviesDao.getPopularMovies().first()
+        val allMoviesFromDb = moviesDao.getPopularMovies().first()
+        val popularMoviesFromDb = allMoviesFromDb.filter { it.id < ARGENTINA_ID_OFFSET }
 
-        return moviesFromDb.ifEmpty {
+
+        return if(popularMoviesFromDb.isEmpty()) {
             val moviesFromApi = moviesService.getPopularMovies().results.map {
                 it.toDomainMovie()
             }
+
             moviesFromApi.forEach { movie ->
-                moviesLoadedFromApiInSession.add(movie.id)
+                movieDataSourceMap[movie.id] = DataSource.API
             }
+
             moviesDao.save(moviesFromApi)
             moviesFromApi
+        } else{
+            popularMoviesFromDb.forEach { movie ->
+                movieDataSourceMap[movie.id] = DataSource.DATABASE
+            }
+            popularMoviesFromDb
         }
     }
 
     suspend fun getArgMovies(): List<Movie> {
-        val moviesFromDb = moviesDao.getPopularMovies().first()
+        val allMoviesFromDb = moviesDao.getPopularMovies().first()
+        val argMoviesFromDb = allMoviesFromDb.filter { it.id >= ARGENTINA_ID_OFFSET }
 
-        return moviesFromDb.ifEmpty {
-            val moviesFromApi = moviesService.getArgMovies().results.map {
-                it.toDomainMovie()
+        return if (argMoviesFromDb.isEmpty()) {
+            val moviesFromApi = moviesService.getArgMovies().results.map { remoteMovie ->
+                remoteMovie.toDomainMovie().copy(
+                    id = remoteMovie.id + ARGENTINA_ID_OFFSET
+                )
             }
+
             moviesFromApi.forEach { movie ->
-                moviesLoadedFromApiInSession.add(movie.id)
+                movieDataSourceMap[movie.id] = DataSource.API
             }
+
             moviesDao.save(moviesFromApi)
             moviesFromApi
+        } else {
+            argMoviesFromDb.forEach { movie ->
+                movieDataSourceMap[movie.id] = DataSource.DATABASE
+            }
+            argMoviesFromDb
         }
     }
 
-
     suspend fun getMovieById(id: Int): MoviesWithSource {
         val movieFromDb = moviesDao.getMovieById(id)
-        val dataSource = if (moviesLoadedFromApiInSession.contains(id)) {
-            println("entre a api")
-            DataSource.API
-        } else {
-            println("entre a database")
-            DataSource.DATABASE
+        val dataSource = movieDataSourceMap[id] ?: DataSource.DATABASE
+
+        when(dataSource){
+            DataSource.API -> println("✅ Movie ID $id loaded from API")
+            DataSource.DATABASE -> println("💾 Movie ID $id loaded from DATABASE")
         }
 
         return MoviesWithSource(
@@ -61,8 +80,8 @@ class MoviesRepository(
 
     suspend fun clearDatabase() {
         moviesDao.clearAllMovies()
-        moviesLoadedFromApiInSession.clear()
-        println("🧹 API session set cleared!")
+        movieDataSourceMap.clear()
+        println("🧹 Database and DataSource map cleared!")
     }
 
     private fun RemoteMovie.toDomainMovie(): Movie {
@@ -78,6 +97,5 @@ class MoviesRepository(
             popularity = popularity,
             voteAverage = voteAverage
         )
-
     }
 }

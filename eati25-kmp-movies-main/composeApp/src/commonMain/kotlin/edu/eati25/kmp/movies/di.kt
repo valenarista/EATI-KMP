@@ -28,7 +28,7 @@ val appModule = module {
 }
 
 val dataModule = module {
-    factoryOf(::MoviesRepository)
+    single { MoviesRepository(get(),get()) }
     factoryOf(::MoviesService)
     single {
         HttpClient {
