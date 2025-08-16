@@ -10,7 +10,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +61,18 @@ fun DetailScreen(viewModel: DetailViewModel, onBack: () -> Unit) {
                         onBack = onBack,
                         scrollBehavior = scrollBehavior
                     )
+                },
+                floatingActionButton = {
+                    state.movie?.let { movie ->
+                        FloatingActionButton(
+                            onClick = { viewModel.onFavoriteClick() }
+                        ) {
+                            Icon(
+                                if (movie.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = "Favorite"
+                            )
+                        }
+                    }
                 }
             ) { padding ->
 

@@ -3,14 +3,19 @@ package edu.eati25.kmp.movies.ui.screens.home
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import edu.eati25.kmp.movies.data.Movie
 import edu.eati25.kmp.movies.data.MoviesRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.datetime.Clock
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Instant
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModel(
     private val moviesRepository: MoviesRepository
 ): ViewModel() {
@@ -18,61 +23,54 @@ class HomeViewModel(
         private set
     var showArgMovies by mutableStateOf(false)
         private set
+    var currentFilter by mutableStateOf("")
+        private set
+
     private var lastClearTime: Instant?= null
     private val AUTO_CLEAR_INTERVAL_MS = 30*60*1000L // 30 minutes
-
     private var hasInitiallyLoaded = false
 
     init {
-        if(!hasInitiallyLoaded) {
-            loadPopularMovies()
+        if (!hasInitiallyLoaded) {
+            viewModelScope.launch {
+                snapshotFlow { showArgMovies to currentFilter }
+                    .flatMapLatest { (showArg, filter) ->
+                        state = state.copy(isLoading = true)
+                        clearIfNeeded()
+
+                        val moviesFlow = if (showArg) {
+                            moviesRepository.getArgMovies()
+                        } else {
+                            moviesRepository.getPopularMovies()
+                        }
+
+                        moviesFlow.map { movies ->
+                            if (filter.isEmpty()) {
+                                movies
+                            } else {
+                                movies.filter { movie ->
+                                    movie.title.contains(filter, ignoreCase = true)
+                                }
+                            }
+                        }
+                    }
+                    .collect { filteredMovies ->
+                        state = UiState(
+                            isLoading = false,
+                            movies = filteredMovies
+                        )
+                    }
+            }
             hasInitiallyLoaded = true
         }
     }
 
     fun toggleShowArgMovies(checked: Boolean) {
         showArgMovies = checked
-        if (checked) {
-            loadArgMovies()
-        } else {
-            loadPopularMovies()
-        }
-    }
-    fun loadPopularMovies() {
-        viewModelScope.launch {
-            state = UiState(isLoading = true)
-            clearIfNeeded()
-            state =
-                UiState(
-                    isLoading = false,
-                    movies = moviesRepository.getPopularMovies()
-                )
-        }
-    }
-
-    fun loadArgMovies() {
-        viewModelScope.launch {
-            state = UiState(isLoading = true)
-            clearIfNeeded()
-            state =
-                UiState(
-                    isLoading = false,
-                    movies = moviesRepository.getArgMovies()
-                )
-        }
     }
     fun loadFilteredMovies(query: String) {
-        viewModelScope.launch {
-            state = UiState(isLoading = true)
-            val moviesFromDb = moviesRepository.getPopularMovies().filter { it.title.contains(query, ignoreCase = true) }
-            if (moviesFromDb.isNotEmpty()) {
-                state = UiState(isLoading = false, movies = moviesFromDb)
-            } else {
-                state = UiState(isLoading = false, movies = emptyList())
-            }
-        }
+        currentFilter = query
     }
-
 
     private fun shouldClearCache(): Boolean {
         val currentTime = Clock.System.now()

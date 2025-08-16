@@ -1,7 +1,11 @@
 package edu.eati25.kmp.movies.data
 
 import edu.eati25.kmp.movies.data.database.MoviesDao
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 
 class MoviesRepository(
     private val moviesService: MoviesService,
@@ -10,16 +14,15 @@ class MoviesRepository(
 
     private val movieDataSourceMap = mutableMapOf<Int, DataSource>()
 
-    private val POPULAR_ID_OFFSET = 0
-    private val ARGENTINA_ID_OFFSET = 10000000 // 10 millones
+    private val ARGENTINA_ID_OFFSET = 10000000
 
-    suspend fun getPopularMovies(): List<Movie> {
+    fun getPopularMovies(): Flow<List<Movie>> = flow {
+        var firstLoadFromApi = false
 
         val allMoviesFromDb = moviesDao.getPopularMovies().first()
         val popularMoviesFromDb = allMoviesFromDb.filter { it.id < ARGENTINA_ID_OFFSET }
 
-
-        return if(popularMoviesFromDb.isEmpty()) {
+        if (popularMoviesFromDb.isEmpty()) {
             val moviesFromApi = moviesService.getPopularMovies().results.map {
                 it.toDomainMovie()
             }
@@ -28,21 +31,35 @@ class MoviesRepository(
                 movieDataSourceMap[movie.id] = DataSource.API
             }
 
-            moviesDao.save(moviesFromApi)
-            moviesFromApi
-        } else{
-            popularMoviesFromDb.forEach { movie ->
-                movieDataSourceMap[movie.id] = DataSource.DATABASE
-            }
-            popularMoviesFromDb
-        }
-    }
+            emit(moviesFromApi)
+            firstLoadFromApi = true
 
-    suspend fun getArgMovies(): List<Movie> {
+            moviesDao.save(moviesFromApi)
+        }
+
+        emitAll(
+            moviesDao.getPopularMovies().map { dbMovies ->
+                val filtered = dbMovies.filter { it.id < ARGENTINA_ID_OFFSET }
+
+                if (firstLoadFromApi && filtered.isNotEmpty()) {
+                    firstLoadFromApi = false
+                    return@map filtered
+                }
+
+                filtered.forEach { movie ->
+                    movieDataSourceMap[movie.id] = DataSource.DATABASE
+                }
+                filtered
+            }
+        )
+    }
+    fun getArgMovies(): Flow<List<Movie>> = flow {
+        var firstLoadFromApi = false
+
         val allMoviesFromDb = moviesDao.getPopularMovies().first()
         val argMoviesFromDb = allMoviesFromDb.filter { it.id >= ARGENTINA_ID_OFFSET }
 
-        return if (argMoviesFromDb.isEmpty()) {
+        if (argMoviesFromDb.isEmpty()) {
             val moviesFromApi = moviesService.getArgMovies().results.map { remoteMovie ->
                 remoteMovie.toDomainMovie().copy(
                     id = remoteMovie.id + ARGENTINA_ID_OFFSET
@@ -53,15 +70,30 @@ class MoviesRepository(
                 movieDataSourceMap[movie.id] = DataSource.API
             }
 
+            emit(moviesFromApi)
+            firstLoadFromApi = true
+
             moviesDao.save(moviesFromApi)
-            moviesFromApi
-        } else {
-            argMoviesFromDb.forEach { movie ->
-                movieDataSourceMap[movie.id] = DataSource.DATABASE
-            }
-            argMoviesFromDb
         }
+
+        emitAll(
+            moviesDao.getPopularMovies().map { dbMovies ->
+                val filtered = dbMovies.filter { it.id >= ARGENTINA_ID_OFFSET }
+
+                if (firstLoadFromApi && filtered.isNotEmpty()) {
+                    firstLoadFromApi = false
+                    return@map filtered
+                }
+
+                filtered.forEach { movie ->
+                    movieDataSourceMap[movie.id] = DataSource.DATABASE
+                }
+                filtered
+            }
+        )
     }
+
+
 
     suspend fun getMovieById(id: Int): MoviesWithSource {
         val movieFromDb = moviesDao.getMovieById(id)
@@ -78,10 +110,15 @@ class MoviesRepository(
         )
     }
 
+
     suspend fun clearDatabase() {
         moviesDao.clearAllMovies()
         movieDataSourceMap.clear()
         println("🧹 Database and DataSource map cleared!")
+    }
+
+    suspend fun toggleFavorite(movie:Movie){
+        moviesDao.save(listOf(movie.copy(isFavorite = !movie.isFavorite)))
     }
 
     private fun RemoteMovie.toDomainMovie(): Movie {
@@ -95,7 +132,8 @@ class MoviesRepository(
             originalTitle = originalTitle,
             originalLanguage = originalLanguage,
             popularity = popularity,
-            voteAverage = voteAverage
+            voteAverage = voteAverage,
+            isFavorite = false
         )
     }
 }

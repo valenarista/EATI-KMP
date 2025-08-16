@@ -35,4 +35,13 @@ class DetailViewModel(
         val movie: Movie? = null,
         val dataSource: DataSource? = null
     )
+    fun onFavoriteClick() {
+        val current = state.movie ?: return
+        val updated = current.copy(isFavorite = !current.isFavorite)
+        state = state.copy(movie = updated)
+
+        viewModelScope.launch {
+            moviesRepository.toggleFavorite(current)
+        }
+    }
 }
